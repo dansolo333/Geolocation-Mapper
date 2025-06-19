@@ -189,7 +189,230 @@
                 source: 'polygon',
                 layout: {},
                 paint: {
-                  'fill-color': '##ADD8E6',
+                  'fill-color': '#FF0000',
+                  'fill-opacity': 0.6
+                }
+              });
+              map.addLayer({
+                id: 'polygon-outline',
+                type: 'line',
+                source: 'polygon',
+                layout: {},
+                paint: {
+                  'line-color': '#000',
+                  'line-width': 2
+                }
+              });
+              const area = turf.area(polygon);
+              const roundedArea = Math.round(area * 100) / 100;
+              document.getElementById('area').innerHTML = `<p>Area: ${roundedArea} square meters</p>`;
+              const bbox = turf.bbox(polygon);
+              map.fitBounds(bbox, { padding: 50 });
+            } catch (e) {
+              console.error('Error adding polygon:', e);
+              document.getElementById('area').innerHTML = `<p>Error rendering polygon: ${e.message}</p>`;
+            }
+          } else {
+            document.getElementById('area').innerHTML = `<p>Not enough points to form a polygon (need at least 3, got ${positions.length})</p>`;
+          }
+          positions = [];
+        }
+      });
+    }
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html>
+<head>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.12.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.12.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <style>
+    #map { width: 100%; height: 500px; }
+    body { margin: 0; }
+    #area { margin: 10px; }
+    button { margin: 5px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="start">Start Mapping</button>
+  <button id="pause">Pause Mapping</button>
+  <button id="resume">Resume Mapping</button>
+  <button id="stop">Stop Mapping</button>
+  <div id="area"></div>
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZGFuMzNzb2xvIiwiYSI6ImNtYmhzc255OTAwcm0ya3M0Nzd6aXdvcXgifQ.wrEtwxnMtVIFirolvrHHgQ';
+    let map;
+    let userMarker;
+    let watchId;
+    let positions = [];
+    let isMapping = false;
+    let isPaused = false;
+
+    // Initialize map with user's location
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      initializeMap([-74.5, 40], 9); // Fallback to default
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { longitude, latitude } = position.coords;
+          console.log('Initial position:', { latitude, longitude, accuracy: position.coords.accuracy });
+          initializeMap([longitude, latitude], 15);
+          userMarker = new mapboxgl.Marker()
+            .setLngLat([longitude, latitude])
+            .addTo(map);
+        },
+        (error) => {
+          console.error('Geolocation error:', error.message);
+          alert('Failed to get location. Using default center. Error: ' + error.message);
+          initializeMap([-74.5, 40], 9);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    function initializeMap(center, zoom) {
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: center,
+        zoom: zoom
+      });
+      map.on('load', () => {
+        console.log('Map loaded successfully');
+        // source and layer for live path
+        map.addSource('path', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: []
+            }
+          }
+        });
+        map.addLayer({
+          id: 'path',
+          type: 'line',
+          source: 'path',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': '#FF0000',
+            'line-width': 5
+          }
+        });
+      });
+      map.on('error', (e) => console.error('Map error:', e));
+
+      // Start Mapping button
+      document.getElementById('start').addEventListener('click', () => {
+        if (!watchId) {
+          isMapping = true;
+          isPaused = false;
+          positions = [];
+          // Clear previous path
+          if (map.getSource('path')) {
+            map.getSource('path').setData({
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: []
+              }
+            });
+          }
+          // Remove previous polygon if exists
+          if (map.getSource('polygon')) {
+            map.removeLayer('polygon');
+            map.removeLayer('polygon-outline');
+            map.removeSource('polygon');
+          }
+          watchId = navigator.geolocation.watchPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              console.log('Position:', { latitude, longitude, accuracy: position.coords.accuracy });
+              if (userMarker) {
+                userMarker.setLngLat([longitude, latitude]);
+              } else {
+                userMarker = new mapboxgl.Marker()
+                  .setLngLat([longitude, latitude])
+                  .addTo(map);
+              }
+              if (isMapping && !isPaused) {
+                positions.push([longitude, latitude]);
+                map.getSource('path').setData({
+                  type: 'Feature',
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: positions
+                  }
+                });
+              }
+            },
+            (error) => {
+              console.error('Geolocation error:', error.message);
+              alert('Geolocation error: ' + error.message);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0
+            }
+          );
+        }
+      });
+
+      // Pause Mapping button
+      document.getElementById('pause').addEventListener('click', () => {
+        if (isMapping && !isPaused) {
+          isPaused = true;
+          console.log('Mapping paused');
+        }
+      });
+
+      // Resume Mapping button
+      document.getElementById('resume').addEventListener('click', () => {
+        if (isMapping && isPaused) {
+          isPaused = false;
+          console.log('Mapping resumed');
+        }
+      });
+
+      // Stop Mapping button
+      document.getElementById('stop').addEventListener('click', () => {
+        if (watchId) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+          isMapping = false;
+          isPaused = false;
+          if (positions.length > 2) {
+            if (positions[0][0] !== positions[positions.length - 1][0] || positions[0][1] !== positions[positions.length - 1][1]) {
+              positions.push(positions[0]);
+            }
+            const polygon = {
+              type: 'Feature',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [positions]
+              }
+            };
+            console.log('Polygon GeoJSON:', JSON.stringify(polygon, null, 2));
+            try {
+              map.addSource('polygon', {
+                type: 'geojson',
+                data: polygon
+              });
+              map.addLayer({
+                id: 'polygon',
+                type: 'fill',
+                source: 'polygon',
+                layout: {},
+                paint: {
+                  'fill-color': '#FF0000',
                   'fill-opacity': 0.6
                 }
               });
