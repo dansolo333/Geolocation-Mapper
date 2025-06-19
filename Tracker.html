@@ -14,6 +14,8 @@
 <body>
   <div id="map"></div>
   <button id="start">Start Mapping</button>
+  <button id="pause">Pause Mapping</button>
+  <button id="resume">Resume Mapping</button>
   <button id="stop">Stop Mapping</button>
   <div id="area"></div>
   <script>
@@ -22,6 +24,8 @@
     let userMarker;
     let watchId;
     let positions = [];
+    let isMapping = false;
+    let isPaused = false;
 
     // Initialize map with user's location
     if (!navigator.geolocation) {
@@ -53,16 +57,60 @@
         center: center,
         zoom: zoom
       });
-      map.on('load', () => console.log('Map loaded successfully'));
+      map.on('load', () => {
+        console.log('Map loaded successfully');
+        // source and layer for live path
+        map.addSource('path', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: []
+            }
+          }
+        });
+        map.addLayer({
+          id: 'path',
+          type: 'line',
+          source: 'path',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': '#FF0000',
+            'line-width': 5
+          }
+        });
+      });
       map.on('error', (e) => console.error('Map error:', e));
 
       // Start Mapping button
       document.getElementById('start').addEventListener('click', () => {
         if (!watchId) {
+          isMapping = true;
+          isPaused = false;
+          positions = [];
+          // Clear previous path
+          if (map.getSource('path')) {
+            map.getSource('path').setData({
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: []
+              }
+            });
+          }
+          // Remove previous polygon if exists
+          if (map.getSource('polygon')) {
+            map.removeLayer('polygon');
+            map.removeLayer('polygon-outline');
+            map.removeSource('polygon');
+          }
           watchId = navigator.geolocation.watchPosition(
             (position) => {
               const { latitude, longitude } = position.coords;
-              positions.push([longitude, latitude]);
               console.log('Position:', { latitude, longitude, accuracy: position.coords.accuracy });
               if (userMarker) {
                 userMarker.setLngLat([longitude, latitude]);
@@ -70,6 +118,16 @@
                 userMarker = new mapboxgl.Marker()
                   .setLngLat([longitude, latitude])
                   .addTo(map);
+              }
+              if (isMapping && !isPaused) {
+                positions.push([longitude, latitude]);
+                map.getSource('path').setData({
+                  type: 'Feature',
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: positions
+                  }
+                });
               }
             },
             (error) => {
@@ -85,11 +143,29 @@
         }
       });
 
+      // Pause Mapping button
+      document.getElementById('pause').addEventListener('click', () => {
+        if (isMapping && !isPaused) {
+          isPaused = true;
+          console.log('Mapping paused');
+        }
+      });
+
+      // Resume Mapping button
+      document.getElementById('resume').addEventListener('click', () => {
+        if (isMapping && isPaused) {
+          isPaused = false;
+          console.log('Mapping resumed');
+        }
+      });
+
       // Stop Mapping button
       document.getElementById('stop').addEventListener('click', () => {
         if (watchId) {
           navigator.geolocation.clearWatch(watchId);
           watchId = null;
+          isMapping = false;
+          isPaused = false;
           if (positions.length > 2) {
             if (positions[0][0] !== positions[positions.length - 1][0] || positions[0][1] !== positions[positions.length - 1][1]) {
               positions.push(positions[0]);
@@ -113,7 +189,7 @@
                 source: 'polygon',
                 layout: {},
                 paint: {
-                  'fill-color': '#FF0000',
+                  'fill-color': '##ADD8E6',
                   'fill-opacity': 0.6
                 }
               });
